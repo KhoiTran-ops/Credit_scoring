@@ -5,7 +5,7 @@ import numpy as np,pandas as pd
 sys.modules['__main__'].WoETransformer=a.WoETransformer;sys.modules['__main__'].Calibrator=a.Calibrator
 
 def run_supplement():
- df=a.load_data();y=df[a.TARGET].to_numpy().astype(int);X=df.drop(columns=['ID','SEX',a.TARGET]);cols=list(X.columns);groups=a.signatures(df.drop(columns=['ID',a.TARGET]));dev,test=next(a.StratifiedGroupKFold(5,shuffle=True,random_state=a.SEED).split(X,y,groups));Xd=X.iloc[dev].reset_index(drop=True);yd=y[dev];gd=groups[dev];Xt=X.iloc[test].reset_index(drop=True);yt=y[test];gt=groups[test];pred=pd.read_csv(a.DATA/'test_predictions.csv');rows=[]
+ df=a.load_data();y=df[a.TARGET].to_numpy().astype(int);X=df.drop(columns=['ID','SEX',a.TARGET]);cols=list(X.columns);groups=a.signatures(df.drop(columns=['ID',a.TARGET]));dev,test=a.load_split_indices(df);Xd=X.iloc[dev].reset_index(drop=True);yd=y[dev];gd=groups[dev];Xt=X.iloc[test].reset_index(drop=True);yt=y[test];gt=groups[test];pred=pd.read_csv(a.DATA/'test_predictions.csv');rows=[]
  for name in a.MODELS:
   print('Weighted recalibration',name,flush=True);obj=load(a.ART/f'{name}.joblib');par=obj['params'];oof=np.empty(len(dev))
   for tr,va in a.StratifiedGroupKFold(3,shuffle=True,random_state=a.SEED+170).split(Xd,yd,gd):

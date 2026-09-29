@@ -1,4 +1,4 @@
-"""Reproducible credit scoring analysis using the team's cleaned CSV."""
+"""Reproducible credit scoring analysis using the article's UCI specification."""
 from pathlib import Path
 import os,json,time,platform,warnings,copy
 ROOT=Path(__file__).resolve().parent.parent
@@ -25,7 +25,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 SEED=20260927
 TARGET='default payment next month'
-SOURCE=ROOT/'data'/'cleaned'/'Du_lieu_sach_Chu_de_1.csv'
+SOURCE=ROOT/'data'/'reference'/'default of credit card clients.xls'
+CLEAN_SOURCE=ROOT/'data'/'cleaned'/'Du_lieu_sach_Chu_de_1.csv'
+SPLIT_MEMBERSHIP=ROOT/'data'/'splits'/'article_split_membership.csv'
+ARTICLE_TEST_IDS=ROOT/'data'/'splits'/'article_test_ids.csv'
 SOURCE_TO_MODEL={
     'customer_id':'ID',
     'credit_limit_ntd':'LIMIT_BAL',
@@ -64,16 +67,49 @@ def note(x):
     line=f'{time.strftime("%H:%M:%S")} {x}';print(line,flush=True);LOG.append(line)
     (OUT/'run_log.txt').write_text('\n'.join(LOG),encoding='utf-8')
 def save(df,name):df.to_csv(OUT/name,index=False,encoding='utf-8-sig')
-def load_data():
-    if not SOURCE.is_file():raise FileNotFoundError(f'Clean input not found: {SOURCE}')
-    df=pd.read_csv(SOURCE)
-    if list(df.columns)!=list(SOURCE_TO_MODEL):raise ValueError('Clean CSV columns do not match the expected data dictionary')
+def _validate_data(df):
     if len(df)!=30000 or df.isna().any().any():raise ValueError('Expected 30,000 complete records')
     if any(not pd.api.types.is_integer_dtype(df[c]) for c in df):raise ValueError('All source fields must be integers')
-    df=df.rename(columns=SOURCE_TO_MODEL)[MODEL_COLUMNS].sort_values('ID',kind='stable').reset_index(drop=True)
+    df=df[MODEL_COLUMNS].sort_values('ID',kind='stable').reset_index(drop=True)
     if not df.ID.is_unique or not df.ID.between(1,30000).all():raise ValueError('Invalid or duplicate customer IDs')
     if not set(df[TARGET].unique()).issubset({0,1}):raise ValueError('The target must be binary')
+    if int(df[TARGET].sum())!=6636:raise ValueError('Unexpected default-label count in source data')
     return df
+
+def load_data():
+    """Load the original UCI data without recoding categorical values."""
+    if not SOURCE.is_file():raise FileNotFoundError(f'UCI source not found: {SOURCE}')
+    df=pd.read_excel(SOURCE,header=1)
+    if list(df.columns)!=MODEL_COLUMNS:raise ValueError('UCI workbook columns do not match the expected data dictionary')
+    return _validate_data(df)
+
+def load_clean_data():
+    """Load the team's separately retained, recoded CSV for sensitivity checks."""
+    if not CLEAN_SOURCE.is_file():raise FileNotFoundError(f'Clean CSV not found: {CLEAN_SOURCE}')
+    df=pd.read_csv(CLEAN_SOURCE)
+    if list(df.columns)!=list(SOURCE_TO_MODEL):raise ValueError('Clean CSV columns do not match the expected data dictionary')
+    if any(not pd.api.types.is_integer_dtype(df[c]) for c in df):raise ValueError('All clean source fields must be integers')
+    return _validate_data(df.rename(columns=SOURCE_TO_MODEL))
+
+def load_split_indices(df):
+    """Load and validate the article's persisted development/test membership."""
+    if not SPLIT_MEMBERSHIP.is_file():raise FileNotFoundError(f'Article split not found: {SPLIT_MEMBERSHIP}')
+    if not ARTICLE_TEST_IDS.is_file():raise FileNotFoundError(f'Article test ID list not found: {ARTICLE_TEST_IDS}')
+    membership=pd.read_csv(SPLIT_MEMBERSHIP)
+    if list(membership.columns)!=['ID','split'] or membership.ID.duplicated().any():
+        raise ValueError('Article split must contain one unique ID and split label per row')
+    if set(membership.split.unique())!={'development','test'}:raise ValueError('Unexpected article split labels')
+    if len(membership)!=len(df) or set(membership.ID)!=set(df.ID):raise ValueError('Article split IDs do not match source data')
+    article_test=set(pd.read_csv(ARTICLE_TEST_IDS)['ID'])
+    split_test=set(membership.loc[membership.split=='test','ID'])
+    if len(article_test)!=6001 or article_test!=split_test:raise ValueError('Article test ID list does not match split membership')
+    labels=membership.set_index('ID').loc[df.ID,'split'].to_numpy()
+    dev=np.flatnonzero(labels=='development');test=np.flatnonzero(labels=='test')
+    y=df[TARGET].to_numpy();groups=signatures(df.drop(columns=['ID',TARGET]))
+    if (len(dev),len(test),int(y[dev].sum()),int(y[test].sum()))!=(23999,6001,5309,1327):
+        raise ValueError('Article split sample flow does not match the reported counts')
+    if set(groups[dev])&set(groups[test]):raise ValueError('Identical customer profiles cross the article split')
+    return dev,test
 def signatures(df):return pd.util.hash_pandas_object(df,index=False).to_numpy().astype(str)
 
 class WoETransformer(TransformerMixin,BaseEstimator):
@@ -208,9 +244,8 @@ def family_importance(sv,cols):
 
 def run():
     started=time.time();df=load_data();y=df[TARGET].to_numpy().astype(int);X=df.drop(columns=['ID','SEX',TARGET]);cols=list(X.columns)
-    groups=signatures(df.drop(columns=['ID',TARGET]));split=StratifiedGroupKFold(5,shuffle=True,random_state=SEED)
-    dev,test=next(split.split(X,y,groups));Xd=X.iloc[dev].reset_index(drop=True);yd=y[dev];gd=groups[dev];Xt=X.iloc[test].reset_index(drop=True);yt=y[test];gt=groups[test]
-    assert not set(gd)&set(gt)
+    groups=signatures(df.drop(columns=['ID',TARGET]));dev,test=load_split_indices(df)
+    Xd=X.iloc[dev].reset_index(drop=True);yd=y[dev];gd=groups[dev];Xt=X.iloc[test].reset_index(drop=True);yt=y[test];gt=groups[test]
     df['split']=np.where(np.isin(np.arange(len(df)),test),'test','development');df[['ID','split']].to_csv(DATA/'split_membership.csv',index=False,encoding='utf-8-sig')
     save(pd.DataFrame([{'partition':'full','n':len(df),'defaults':sum(y),'default_rate':np.mean(y)},{'partition':'development','n':len(dev),'defaults':sum(yd),'default_rate':np.mean(yd)},{'partition':'test','n':len(test),'defaults':sum(yt),'default_rate':np.mean(yt)}]),'table_02_sample_flow.csv')
     dsc=df.drop(columns='split').describe().T.reset_index().rename(columns={'index':'variable'});save(dsc,'table_01_descriptive.csv')
@@ -431,7 +466,7 @@ def resume_from_saved_models():
     sys.modules['__main__'].WoETransformer=WoETransformer
     sys.modules['__main__'].Calibrator=Calibrator
     started=time.time();df=load_data();y=df[TARGET].to_numpy().astype(int);X=df.drop(columns=['ID','SEX',TARGET]);cols=list(X.columns)
-    groups=signatures(df.drop(columns=['ID',TARGET]));dev,test=next(StratifiedGroupKFold(5,shuffle=True,random_state=SEED).split(X,y,groups))
+    groups=signatures(df.drop(columns=['ID',TARGET]));dev,test=load_split_indices(df)
     Xd=X.iloc[dev].reset_index(drop=True);yd=y[dev];gd=groups[dev];Xt=X.iloc[test].reset_index(drop=True);yt=y[test];gt=groups[test]
     fitted={};calibrators={};params={};oofs={};oo=pd.read_csv(DATA/'development_oof_predictions.csv')
     for name in MODELS:

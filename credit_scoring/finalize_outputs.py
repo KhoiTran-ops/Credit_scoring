@@ -3,7 +3,7 @@ from credit_scoring import analysis as a
 import numpy as np,pandas as pd
 
 def finalize():
- r=a.OUT;pred=pd.read_csv(a.DATA/'test_predictions.csv');ss=pd.read_csv(r/'explanation_stability_bootstrap.csv');df=a.load_data();y=df[a.TARGET].to_numpy();groups=a.signatures(df.drop(columns=['ID',a.TARGET]));dev,test=next(a.StratifiedGroupKFold(5,shuffle=True,random_state=a.SEED).split(df,y,groups));metrics=pd.read_csv(r/'table_03_predictive_performance.csv');rb=pd.read_csv(r/'table_07_robustness.csv')
+ r=a.OUT;pred=pd.read_csv(a.DATA/'test_predictions.csv');ss=pd.read_csv(r/'explanation_stability_bootstrap.csv');df=a.load_data();y=df[a.TARGET].to_numpy();groups=a.signatures(df.drop(columns=['ID',a.TARGET]));dev,test=a.load_split_indices(df);metrics=pd.read_csv(r/'table_03_predictive_performance.csv');rb=pd.read_csv(r/'table_07_robustness.csv')
  checks={'n_total':len(df)==30000,'default_count':int(sum(y))==6636,'split_complete':len(dev)+len(test)==len(df),'no_group_overlap':len(set(groups[dev])&set(groups[test]))==0,'test_predictions_finite':bool(np.isfinite(pred.select_dtypes('number')).all().all()),'stability_replicates':bool((ss.groupby('model').size()==200).all()),'robustness_coverage':set(rb.code)=={f'R{k}' for k in range(1,10)},'auc_gini_identity':bool(np.max(np.abs(metrics.gini-(2*metrics.auc-1)))<1e-12),'scorecard_order':bool(np.corrcoef(pred.scorecard_points,pred['Logistic_WoE__none'])[0,1]<0),'additivity_all':all(pd.read_csv(r/f'additivity_{n}.csv').max_additivity_error.max()<.01 for n in a.MODELS),'weighted_recalibration_complete':len(pd.read_csv(r/'R5_weighted_recalibration.csv'))==9}
  assert all(checks.values()),checks
  (r/'integrity_checks.json').write_text(json.dumps({k:bool(v) for k,v in checks.items()},indent=2),encoding='utf-8')

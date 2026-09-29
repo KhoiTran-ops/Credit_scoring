@@ -7,7 +7,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-SOURCE = ROOT / "data" / "cleaned" / "Du_lieu_sach_Chu_de_1.csv"
+SOURCE = ROOT / "data" / "reference" / "default of credit card clients.xls"
+SPLIT_MEMBERSHIP = ROOT / "data" / "splits" / "article_split_membership.csv"
+ARTICLE_TEST_IDS = ROOT / "data" / "splits" / "article_test_ids.csv"
 REQUIREMENTS = ROOT / "requirements.txt"
 VENV = ROOT / ".venv"
 STEPS = (
@@ -36,7 +38,9 @@ def main():
     if sys.version_info[:2] != (3, 13):
         raise SystemExit("Python 3.13 is required; see README.md.")
     if not SOURCE.is_file():
-        raise SystemExit(f"Missing cleaned data: {SOURCE}")
+        raise SystemExit(f"Missing UCI source data: {SOURCE}")
+    if not SPLIT_MEMBERSHIP.is_file() or not ARTICLE_TEST_IDS.is_file():
+        raise SystemExit("Missing article split files under data/splits/. See README.md.")
     if not REQUIREMENTS.is_file():
         raise SystemExit(f"Missing requirements: {REQUIREMENTS}")
     if sys.argv[1:] == ["--run-in-env"]:
