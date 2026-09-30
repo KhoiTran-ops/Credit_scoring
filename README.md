@@ -1,6 +1,6 @@
 # Tái lập nghiên cứu chấm điểm tín dụng
 
-Dự án so sánh ba mô hình dự báo vỡ nợ thẻ tín dụng: **Logistic WoE**, **Random Forest** và **XGBoost**. Pipeline chính dùng dữ liệu UCI gốc và đúng danh sách khách hàng đã chia trong bài báo. CSV sạch do nhóm cung cấp vẫn được giữ riêng để đối chiếu, không bị ghi đè.
+Dự án so sánh ba mô hình dự báo vỡ nợ thẻ tín dụng: **Logistic WoE**, **Random Forest** và **XGBoost**.
 
 ## Chạy toàn bộ phân tích
 
